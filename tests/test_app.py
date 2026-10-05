@@ -1,5 +1,6 @@
 """Offline tests (stdlib unittest, no network): python -m unittest discover -s tests -t ."""
 import io
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -12,6 +13,7 @@ from streamlit.testing.v1 import AppTest
 from app import claude_client, extractor, store
 from app.schema import VendorRecord
 
+os.environ["LLM_BACKEND"] = "claude"  # tests mock claude_client
 APP = str(Path(__file__).resolve().parent.parent / "streamlit_app.py")
 
 
@@ -95,7 +97,7 @@ class ExtractTests(unittest.TestCase):
 
     def test_image_routes_to_vision_not_jev(self):
         vis = {"message_type": "delay", "vendor_category": "logistics", "confidence": "medium"}
-        with mock.patch.object(extractor.claude_client, "extract_with_claude_vision", return_value=vis) as v, \
+        with mock.patch.object(extractor.claude_client, "extract_with_vision", return_value=vis) as v, \
              mock.patch.object(extractor.claude_client, "write_action_sentence", return_value="Call vendor."), \
              mock.patch.object(extractor.jev_client, "t") as j:
             r = extractor.extract(None, png())
@@ -120,7 +122,7 @@ class ClaudeClientTests(unittest.TestCase):
     def test_corrupt_image_rejected_before_api_call(self):
         with mock.patch.object(claude_client, "_ask") as ask:
             with self.assertRaises(Exception):
-                claude_client.extract_with_claude_vision(None, b"not an image")
+                claude_client.extract_with_vision(None, b"not an image")
         ask.assert_not_called()
 
 

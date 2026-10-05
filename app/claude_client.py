@@ -36,7 +36,7 @@ def fill_text_fields(message: str, hints: dict) -> dict:
     return _json(_ask(TEXT_FILL_SYSTEM, prompt))
 
 
-def extract_with_claude_vision(message: str | None, image_bytes: bytes) -> dict:
+def extract_with_vision(message: str | None, image_bytes: bytes) -> dict:
     fmt = (Image.open(io.BytesIO(image_bytes)).format or "PNG").lower()
     media_type = "image/jpeg" if fmt in ("jpg", "jpeg") else f"image/{fmt}"
     content = [

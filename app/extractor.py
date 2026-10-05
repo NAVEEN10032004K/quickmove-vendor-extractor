@@ -1,8 +1,15 @@
+import os
 import re
 
-from app import claude_client, jev_client
+from app import claude_client, jev_client, ollama_client
 from app.prompts import JEV_FLAGS, JEV_QUESTIONS
 from app.schema import VendorRecord
+
+
+def _llm():
+    """LLM_BACKEND=ollama (default, local demo) or claude (needs ANTHROPIC_API_KEY, supports screenshots)."""
+    return claude_client if os.getenv("LLM_BACKEND", "ollama") == "claude" else ollama_client
+
 
 FLAG_THRESHOLD = 0.85  # Jev noul probability needed to raise a flag (0.5 was too noisy in testing)
 
@@ -26,7 +33,7 @@ def _confidence(c: float) -> str:
 def extract_with_jev(message: str) -> dict:
     """Jev: enums, confidence and red flags. Claude: free-text fields (Jev can't return strings)."""
     jev = jev_client.t(message, JEV_QUESTIONS)
-    fields = claude_client.fill_text_fields(message, regex_hints(message))
+    fields = _llm().fill_text_fields(message, regex_hints(message))
     quote_only = {"no_gst", "low_price"}  # Jev fires these on listings/notices too
     flags = [txt for k, (_, txt) in JEV_FLAGS.items()
              if jev[k] >= FLAG_THRESHOLD and (k not in quote_only or jev["message_type"] == "quote")]
@@ -42,10 +49,10 @@ def extract_with_jev(message: str) -> dict:
 
 def extract(message: str | None, image_bytes: bytes | None) -> VendorRecord:
     if image_bytes:
-        record = VendorRecord(**claude_client.extract_with_claude_vision(message, image_bytes))
+        record = VendorRecord(**_llm().extract_with_vision(message, image_bytes))
     else:
         record = VendorRecord(**extract_with_jev(message or ""))
-    record.action_needed = claude_client.write_action_sentence(record.model_dump_json())
+    record.action_needed = _llm().write_action_sentence(record.model_dump_json())
     return record
 
 

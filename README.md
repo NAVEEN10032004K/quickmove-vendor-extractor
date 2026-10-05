@@ -7,19 +7,21 @@ Ops people at QuickMove (relocation, 8 Indian cities) spend their day on unstruc
 
 ## Run with Docker (no Python setup needed)
 
-You need Docker and two API keys (Anthropic and TypeSafe).
+You need Docker and a TypeSafe key (Jev), plus one LLM backend (see [Choosing the LLM backend](#choosing-the-llm-backend)).
 
 ```bash
-printf 'ANTHROPIC_API_KEY=your-key\nTYPESAFE_API_KEY=your-key\n' > .env
+printf 'TYPESAFE_API_KEY=your-key\nANTHROPIC_API_KEY=your-key\n' > .env
 
 # Option A: pull the published image
-docker run -d --name quickmove -p 8501:8501 --env-file .env -v quickmove-data:/data \
+docker run -d --name quickmove -p 8501:8501 --env-file .env -e LLM_BACKEND=claude -v quickmove-data:/data \
   <DOCKERHUB_USER>/quickmove-vendor-extractor:latest        # image ID / digest: <ADD AFTER PUSH>
 
 # Option B: build it yourself (reference build: image ID 1df2baa94f5a, ~832 MB)
 docker build -t quickmove-vendor-extractor .
-docker run -d --name quickmove -p 8501:8501 --env-file .env -v quickmove-data:/data quickmove-vendor-extractor
+docker run -d --name quickmove -p 8501:8501 --env-file .env -e LLM_BACKEND=claude -v quickmove-data:/data quickmove-vendor-extractor
 ```
+
+To use a local Ollama on the host instead of Claude, replace `-e LLM_BACKEND=claude` with `-e OLLAMA_URL=http://host.docker.internal:11434` (no Anthropic key needed; text only).
 
 Open http://localhost:8501. Saved records live in the `quickmove-data` volume (`/data/records.db`) and survive container restarts. Stop with `docker rm -f quickmove`. `.env` is never baked into the image.
 
@@ -30,15 +32,31 @@ Python 3.10+.
 ```bash
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
-cp .env.example .env        # then fill ANTHROPIC_API_KEY and TYPESAFE_API_KEY
+cp .env.example .env        # then fill TYPESAFE_API_KEY (and ANTHROPIC_API_KEY if using Claude)
 streamlit run streamlit_app.py
 ```
+
+### Choosing the LLM backend
+
+Jev always handles classification and red flags. The LLM that fills free-text fields and writes the action sentence is pluggable via `LLM_BACKEND`:
+
+| `LLM_BACKEND` | Client | Needs | Screenshots |
+|---|---|---|---|
+| `ollama` (default) | `app/ollama_client.py`, local model via Ollama (`OLLAMA_MODEL`, default `qwen2.5:14b`; `OLLAMA_URL`, default `http://localhost:11434`) | Ollama running with the model pulled | No (text only) |
+| `claude` | `app/claude_client.py`, Anthropic `claude-sonnet-5-5` | `ANTHROPIC_API_KEY` | Yes (Claude vision) |
+
+```bash
+streamlit run streamlit_app.py                      # Ollama
+LLM_BACKEND=claude streamlit run streamlit_app.py   # Claude
+```
+
+Both clients expose the same three functions (`fill_text_fields`, `extract_with_vision`, `write_action_sentence`), so adding another backend is one new file and one line in `app/extractor.py`.
 
 Records go to `records.db` (git-ignored). Self-checks: `python -m app.extractor`, `python -m app.store`. Live Jev check: `python -m app.jev_client`.
 
 ## Tests
 
-25 offline tests (stdlib `unittest`, models mocked, no API keys or network needed):
+25 offline tests (stdlib `unittest`, models mocked, no API keys, Ollama or network needed):
 
 ```bash
 python -m unittest discover -s tests -t .
@@ -71,9 +89,9 @@ TypeSafe's Jev (`/v1/systemone`) answers typed questions (choice, score, yes/no 
 
 | Input | Who does what |
 |---|---|
-| Text | **Jev**: message_type, vendor_category, confidence, red-flag probabilities (one request, 9 parallel questions). **Claude**: free-text fields (vendor, amount, dates, inclusions, contact, reference), guided by regex hints. |
-| Screenshot | **Claude vision** does the whole record. |
-| Always | **Claude** writes the one-line `action_needed` (tiny prompt). |
+| Text | **Jev**: message_type, vendor_category, confidence, red-flag probabilities (one request, 9 parallel questions). **LLM backend** (Ollama or Claude): free-text fields (vendor, amount, dates, inclusions, contact, reference), guided by regex hints. |
+| Screenshot | **Claude vision** does the whole record (`LLM_BACKEND=claude`). |
+| Always | The **LLM backend** writes the one-line `action_needed` (tiny prompt). |
 
 Red flags from Jev count only at probability ≥ 0.85 (0.5 was noisy in testing); Claude can add more. `app/jev_client.py` is the only file that knows the Jev API shape.
 
@@ -100,6 +118,7 @@ Docker prints the image digest after the push. Paste it into the "Run with Docke
 2. At share.streamlit.io, create an app from the repo, main file `streamlit_app.py`.
 3. In Settings → Secrets add:
    ```toml
+   LLM_BACKEND = "claude"   # Cloud can't reach a local Ollama
    ANTHROPIC_API_KEY = "..."
    TYPESAFE_API_KEY = "..."
    ```
