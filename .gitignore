@@ -1,0 +1,21 @@
+# secrets
+.env
+.env.*
+!.env.example
+
+# local data
+*.db
+*.sqlite3
+
+# python
+env/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+
+# os / editor
+.DS_Store
+.idea/
+.vscode/
